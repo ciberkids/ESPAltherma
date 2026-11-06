@@ -10,10 +10,12 @@ const char *discovery_json_end = "},\"stat_t\":\"espaltherma/ATTR\",\"qos\": 2}"
 #define ESP_SENSOR_M5BATV 999
 #define ESP_SENSOR_WIFI_RSSI 998
 #define ESP_SENSOR_FREE_MEM 997
+#define ESP_SENSOR_UPTIME 996
 
 const LabelDef battery_voltage = {-1, -1, -1, -1, ESP_SENSOR_M5BATV, "M5BatV"};
 const LabelDef wifi_rssi = {-1, -1, -1, -1, ESP_SENSOR_WIFI_RSSI, "WifiRSSI"};
 const LabelDef free_mem = {-1, -1, -1, -1, ESP_SENSOR_FREE_MEM, "FreeMem"};
+const LabelDef uptime = {-1, -1, -1, -1, ESP_SENSOR_UPTIME, "Uptime"};
 
 static bool isMeasurementSensor(const std::string &sensorProperties)
 {
@@ -42,6 +44,8 @@ size_t streamDeviceDiscoveryPayload(const LabelDef *labels, size_t count, Discov
     s = "," + makeSensorJson(wifi_rssi, true);
     emit(s.data(), s.size());
     s = "," + makeSensorJson(free_mem, true);
+    emit(s.data(), s.size());
+    s = "," + makeSensorJson(uptime, true);
     emit(s.data(), s.size());
 
     // Sensors from the active definition file. Each component is streamed on its own so the
@@ -108,6 +112,7 @@ std::string getConversion(const LabelDef &label)
         case ESP_SENSOR_WIFI_RSSI:
             return "|replace('dBm','')|int";
         case ESP_SENSOR_FREE_MEM:
+        case ESP_SENSOR_UPTIME:
             return "|int";
     }
     return "";
@@ -127,6 +132,9 @@ std::string getSensorDeviceAndUnit(const LabelDef &label)
         // "FreeMem" (data_size in b)
         case ESP_SENSOR_FREE_MEM:
             return "\"p\":\"sensor\",\"dev_cla\":\"data_size\",\"unit_of_meas\":\"B\",";
+        // "Uptime" (duration in s, since boot: drops to 0 on every reboot)
+        case ESP_SENSOR_UPTIME:
+            return "\"p\":\"sensor\",\"dev_cla\":\"duration\",\"unit_of_meas\":\"s\",";
 
         /// Built-in ones:
         // TODO: move magic numbers to consts

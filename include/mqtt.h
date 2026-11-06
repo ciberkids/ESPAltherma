@@ -52,6 +52,12 @@ void sendValues()
 #endif
   snprintf(jsonbuff + strlen(jsonbuff),MAX_MSG_SIZE - strlen(jsonbuff) , "\"%s\":\"%ddBm\",", "WifiRSSI", WiFi.RSSI());
   snprintf(jsonbuff + strlen(jsonbuff),MAX_MSG_SIZE - strlen(jsonbuff) , "\"%s\":\"%d\",", "FreeMem", ESP.getFreeHeap());
+#ifdef ARDUINO_ARCH_ESP8266
+  unsigned long uptime = millis() / 1000;
+#else
+  unsigned long uptime = (unsigned long)(esp_timer_get_time() / 1000000ULL);//64-bit timer: no 49-day wrap like millis()
+#endif
+  snprintf(jsonbuff + strlen(jsonbuff),MAX_MSG_SIZE - strlen(jsonbuff) , "\"%s\":\"%lu\",", "Uptime", uptime);//seconds since boot
   jsonbuff[strlen(jsonbuff) - 1] = '}';
 #ifdef JSONTABLE
   strcat(jsonbuff,"]");
