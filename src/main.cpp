@@ -459,6 +459,7 @@ void setup()
   mqttSerial.begin(&client, "espaltherma/log");
   reconnectMqtt();
   mqttSerial.println("OK!");
+  mqttSerial.printf("Last reset reason: %s\n", resetReasonName());
 
   initRegistries();
   mqttSerial.print("ESPAltherma started!");
@@ -487,7 +488,7 @@ void loop()
   //Querying all registries
   for (size_t i = 0; (i < 32) && registryIDs[i] != 0xFF; i++)
   {
-    unsigned char buff[64] = {0};
+    unsigned char buff[MAX_REPLY_LEN] = {0};
     int tries = 0;
     while (!queryRegistry(registryIDs[i], buff, PROTOCOL) && tries++ < 3)
     {

@@ -14,6 +14,7 @@ HardwareSerial MySerial(1);
 #define SERIAL_FLUSH_TX_ONLY false
 #endif
 #define SER_TIMEOUT 300 //leave 300ms for the machine to answer
+#define MAX_REPLY_LEN 64 //size of the reply buffer. Real replies are ~25 bytes; anything claiming more is noise
 
 unsigned char getCRC(unsigned char *src, int len)
 {
@@ -28,9 +29,14 @@ unsigned char getCRC(unsigned char *src, int len)
 void logBuffer(unsigned char *buffer, size_t len)
 {
   char bufflog[250] = {0};
+  const size_t maxBytes = (sizeof(bufflog) - 1) / 5; //each byte takes 5 chars: "0x%02x "
+  if (len > maxBytes)
+  {
+    len = maxBytes;
+  }
   for (size_t i = 0; i < len; i++)
   {
-    sprintf(bufflog + i * 5, "0x%02x ", buffer[i]);
+    snprintf(bufflog + i * 5, sizeof(bufflog) - i * 5, "0x%02x ", buffer[i]);
   }
   mqttSerial.print(bufflog);
 }
@@ -93,6 +99,15 @@ bool queryRegistry(char regID, unsigned char *buffer, char protocol='I')
       {
         // Override reply length with the actual one (not counting already read bytes, see doc/Daikin I protocol.md)
         replyLen = buffer[2] + 2;
+        if (replyLen > MAX_REPLY_LEN)
+        {
+          // Not a real reply: noise on the RX line (eg. X10A not connected) or a corrupted byte.
+          // Reading on would write past the end of the reply buffer.
+          mqttSerial.printf("ERR: Bogus reply length %d on register 0x%02x, ignoring\n", replyLen, regID);
+          logBuffer(buffer, len);
+          delay(500);
+          return false;
+        }
       }
       // Error reply common to both protocols
       if (len == 2 && buffer[0] == 0x15 && buffer[1] == 0xea)
