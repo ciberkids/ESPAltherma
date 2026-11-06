@@ -25,17 +25,13 @@
 #include "converters.h"
 #include "comm.h"
 #include "homeassistant.h"
+#include "display.h"
 #include "mqtt.h"
 #include "restart.h"
 
 Converter converter;
 char registryIDs[32]; //Holds the registries to query
 bool busy = false;
-
-#if defined(ARDUINO_M5Stick_C_Plus2) || defined(ARDUINO_M5Stick_C_Plus) || defined(ARDUINO_M5Stick_C) || defined(ARDUINO_M5Stack_Tough) || defined(ARDUINO_M5Stick_S3)
-#define HAS_M5_SCREEN
-long LCDTimeout = 40000;//Keep screen ON for 40s then turn off. ButtonA will turn it On again.
-#endif
 
 bool contains(char array[], int size, int value)
 {
@@ -83,45 +79,13 @@ void updateValues(char regID)
 }
 
 uint16_t loopcount =0;
-boolean display_sleeping = false;
 
-#ifdef HAS_M5_SCREEN
-#ifdef ARDUINO_M5Stack_Tough
-#define SCREEN_BRIGHTNESS 12
-#else
-#define SCREEN_BRIGHTNESS 100
-#endif
-
-void wakeScreen()
-{
-  M5.Display.wakeup();
-  M5.Display.setBrightness(SCREEN_BRIGHTNESS);
-  LCDTimeout = millis() + 30000;
-  display_sleeping = false;
-}
-
-//Non blocking: also called while waiting for WiFi/MQTT so the button
-//can wake the screen even when there is no connection.
+//Non blocking: also called while waiting for WiFi/MQTT so the buttons
+//keep working even when there is no connection.
 void handleScreen()
 {
-  M5.update();
-#ifdef ARDUINO_M5Stack_Tough
-  bool wakeRequested = M5.Touch.changed;
-#else
-  bool wakeRequested = M5.BtnA.wasPressed();
-#endif
-  if (wakeRequested){//Turn back ON screen
-    wakeScreen();
-  } else if (LCDTimeout < millis() && !display_sleeping) { //Turn screen off.
-    M5.Display.setBrightness(0);
-    M5.Display.sleep();
-    display_sleeping = true;
-  }
+  displayTick();
 }
-#else
-void wakeScreen(){}
-void handleScreen(){}
-#endif
 
 void extraLoop()
 {
@@ -184,6 +148,22 @@ void get_wifi_bssid(const char *ssid, uint8_t *bssid, uint32_t *wifi_channel)
 }
 #endif
 
+//Stops all WiFi attempts until the button is pressed again, so a wrong password or a
+//missing AP does not keep hammering the access point with connection attempts.
+void pauseWifi()
+{
+  WiFi.disconnect(true);//true: also turns the radio off
+  Serial.println("\nWiFi stopped from the button. Press it again to retry.");
+  displayLog("WiFi stopped. %s to retry", BUTTON_HINT);
+  while (!displayTick(false))//the front button resumes; a press on a dark screen only wakes it
+  {
+    delay(20);
+  }
+  Serial.println("Retrying WiFi...");
+  displayLog("WiFi: retrying %s", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PWD, 0, 0, true);
+}
+
 void checkWifi()
 {
   if (WiFi.status() == WL_CONNECTED)
@@ -192,10 +172,19 @@ void checkWifi()
   unsigned long lostTime = millis();
   unsigned long lastAttempt = millis();
   unsigned long lastDot = 0;
-  wakeScreen();//Show we lost connection; keep the screen usable during the outage
+  displayWake();//Show we lost connection; keep the screen usable during the outage
+  displayShowLog(true);
+  displayLog("WiFi: connecting to %s", WIFI_SSID);
+#ifdef HAS_M5_SCREEN
+  displayLog("%s to stop retrying", BUTTON_HINT);
+#endif
   while (WiFi.status() != WL_CONNECTED)
   {
-    handleScreen();//Keep the button responsive while disconnected
+    if (displayTick(false))//Keep the buttons responsive while disconnected
+    { //The user asked to stop retrying
+      pauseWifi();
+      lostTime = lastAttempt = millis();
+    }
     delay(50);
     if (millis() - lastDot >= 500)
     {
@@ -213,9 +202,12 @@ void checkWifi()
     if (millis() - lostTime >= 120000)
     { //Still no WiFi after 2 min: reboot in case the WiFi stack is wedged
       Serial.printf("Tried connecting for 120 sec, rebooting now.");
+      displayLog("No WiFi for 2 min, rebooting");
       restart_board();
     }
   }
+  displayLog("WiFi OK: %s", WiFi.localIP().toString().c_str());
+  displayShowLog(false);
 }
 
 #ifndef ARDUINO_ARCH_ESP8266
@@ -335,9 +327,11 @@ void initRegistries(){
       registryIDs[i++] = label.registryID;
     }
   }
+  displayLog("Reading %d values from %d registers", (int)(sizeof(labelDefs) / sizeof(labelDefs[0])), i);
   if (i == 0)
   {
     mqttSerial.printf("ERROR - No values selected in the include file. Stopping.\n");
+    displayLog("No values selected in the definition");
     while (true)
     {
       extraLoop();
@@ -345,65 +339,10 @@ void initRegistries(){
   }
 }
 
-void setupScreen(){
-#if !defined(ARDUINO_M5Stick_C_Plus2) && defined(ARDUINO_M5Stick_C) || defined(ARDUINO_M5Stick_C_Plus) || defined(ARDUINO_M5Stack_Tough)
-  M5.begin();
-  M5.Lcd.setRotation(1);
-  M5.Display.setBrightness(127);
-  M5.Lcd.fillScreen(TFT_WHITE);
-  M5.Lcd.setFreeFont(&FreeSansBold12pt7b);
-  M5.Lcd.setTextDatum(MC_DATUM);
-  int xpos = M5.Lcd.width() / 2; // Half the screen width
-  int ypos = M5.Lcd.height() / 2; // Half the screen width
-  M5.Lcd.setTextColor(TFT_DARKGREY);
-  M5.Lcd.drawString("ESPAltherma", xpos,ypos);
-  delay(2000);
-  M5.Lcd.fillScreen(TFT_BLACK);
-  M5.Lcd.setTextFont(1);
-  M5.Lcd.setTextColor(TFT_GREEN);
-
-#elif defined(ARDUINO_M5Stick_C_Plus2)
-  M5.begin();
-  M5.Lcd.setRotation(1);
-  M5.Lcd.setBrightness(127);
-  M5.Lcd.fillScreen(TFT_WHITE);
-  M5.Lcd.setFont(&FreeSansBold12pt7b);
-  M5.Lcd.setTextDatum(MC_DATUM);
-  int xpos = M5.Lcd.width() / 2; // Half the screen width
-  int ypos = M5.Lcd.height() / 2; // Half the screen width
-  M5.Lcd.setTextColor(TFT_DARKGREY);
-  M5.Lcd.drawString("ESPAltherma", xpos,ypos);
-  delay(2000);
-  M5.Lcd.fillScreen(TFT_BLACK);
-  M5.Lcd.setFont(&Font0);
-  M5.Lcd.setTextColor(TFT_GREEN);
-
-#elif defined(ARDUINO_M5Stick_S3)
-  M5.begin();
-  M5.Lcd.setRotation(1);
-  M5.Display.setBrightness(127);
-  M5.Lcd.fillScreen(TFT_WHITE);
-  M5.Lcd.setFont(&FreeSansBold12pt7b);
-  M5.Lcd.setTextDatum(MC_DATUM);
-  int xpos = M5.Lcd.width() / 2; // Half the screen width
-  int ypos = M5.Lcd.height() / 2; // Half the screen width
-  M5.Lcd.setTextColor(TFT_DARKGREY);
-  M5.Lcd.drawString("ESPAltherma", xpos,ypos);
-  delay(2000);
-  M5.Lcd.fillScreen(TFT_BLACK);
-  M5.Lcd.setTextFont(0);  // use a smaller font, to make the text fit on the screen
-  M5.Lcd.setTextColor(TFT_GREEN);
-
-#endif
-
-
-
-}
-
 void setup()
 {
   Serial.begin(115200);
-  setupScreen();
+  displayBegin();
   MySerial.begin(9600, SERIAL_CONFIG, RX_PIN, TX_PIN);
   pinMode(PIN_THERM, OUTPUT);
   // digitalWrite(PIN_THERM, PIN_THERM_ACTIVE_STATE);
@@ -432,11 +371,24 @@ void setup()
   setup_wifi();
   ArduinoOTA.setHostname("ESPAltherma");
   ArduinoOTA.onStart([]() {
+    displayOtaStart();
     busy = true;
+  });
+  ArduinoOTA.onProgress([](unsigned int done, unsigned int total) {
+    displayOtaProgress(done, total);
+  });
+  ArduinoOTA.onEnd([]() {
+    displayOtaEnd(true, "Done, restarting...");
   });
 
   ArduinoOTA.onError([](ota_error_t error) {
     mqttSerial.print("Error on OTA - restarting");
+    const char *reason = error == OTA_AUTH_ERROR ? "auth" : error == OTA_BEGIN_ERROR ? "begin"
+                       : error == OTA_CONNECT_ERROR ? "connect" : error == OTA_RECEIVE_ERROR ? "receive" : "end";
+    char message[32];
+    snprintf(message, sizeof(message), "Update failed (%s)", reason);
+    displayOtaEnd(false, message);
+    delay(2000);//leave the message on screen; the old firmware keeps running after the restart
     restart_board();
   });
   ArduinoOTA.begin();
@@ -457,6 +409,7 @@ void setup()
 
   mqttSerial.printf("Connecting to MQTT server: %s:%d\n", MQTT_SERVER, MQTT_PORT);
   mqttSerial.begin(&client, "espaltherma/log");
+  displayLog("MQTT: connecting to %s", MQTT_SERVER);
   reconnectMqtt();
   mqttSerial.println("OK!");
   mqttSerial.printf("Last reset reason: %s\n", resetReasonName());
@@ -486,23 +439,30 @@ void loop()
     reconnectMqtt();
   }
   //Querying all registries
+  int registriesRead = 0, registriesQueried = 0;
   for (size_t i = 0; (i < 32) && registryIDs[i] != 0xFF; i++)
   {
     unsigned char buff[MAX_REPLY_LEN] = {0};
     int tries = 0;
-    while (!queryRegistry(registryIDs[i], buff, PROTOCOL) && tries++ < 3)
+    bool replied;
+    while (!(replied = queryRegistry(registryIDs[i], buff, PROTOCOL)) && tries++ < 3)
     {
       mqttSerial.println("Retrying...");
       waitLoop(1000);
     }
     unsigned char receivedRegistryID = PROTOCOL == 'S' ? buff[0] : buff[1];
+    registriesQueried++;
+    displayRegisterRead(registryIDs[i], replied && registryIDs[i] == receivedRegistryID);
     if (registryIDs[i] == receivedRegistryID) //if replied registerID is coherent with the command
     {
+      if (replied)
+        registriesRead++;
       converter.readRegistryValues(buff, PROTOCOL); //process all values from the register
       updateValues(registryIDs[i]);       //send them in mqtt
       //waitLoop(500);//wait .5sec between registries
     }
   }
+  displayCycleDone(registriesRead, registriesQueried);
   sendValues();//Send the full json message
   mqttSerial.printf("Done. Waiting %ld ms...", FREQUENCY - millis() + start);
   waitLoop(FREQUENCY - millis() + start);

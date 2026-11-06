@@ -103,6 +103,7 @@ void reconnectMqtt()
     if (client.connect("ESPAltherma-dev", MQTT_USERNAME, MQTT_PASSWORD, MQTT_lwt, 0, true, "Offline"))
     {
       mqttSerial.println("connected!");
+      displayLog("MQTT connected");
       client.publish("homeassistant/sensor/espAltherma/config", "{\"name\":\"AlthermaSensors\",\"stat_t\":\"~/LWT\",\"avty_t\":\"~/LWT\",\"pl_avail\":\"Online\",\"pl_not_avail\":\"Offline\",\"uniq_id\":\"espaltherma\",\"device\":{\"identifiers\":[\"ESPAltherma\"]}, \"~\":\"espaltherma\",\"json_attr_t\":\"~/ATTR\"}", true);
       client.publish(MQTT_lwt, "Online", true);
       client.publish("homeassistant/switch/espAltherma/config", "{\"name\":\"Altherma\",\"cmd_t\":\"~/POWER\",\"stat_t\":\"~/STATE\",\"pl_off\":\"OFF\",\"pl_on\":\"ON\",\"~\":\"espaltherma\"}", true);
@@ -137,6 +138,7 @@ void reconnectMqtt()
     else
     {
       mqttSerial.printf("failed, rc=%d, try again in 5 seconds", client.state());
+      displayLog("MQTT failed (rc=%d), retrying", client.state());
       unsigned long start = millis();
       while (millis() < start + 5000)
       {
@@ -165,6 +167,7 @@ void callbackTherm(byte *payload, unsigned int length)
     saveEEPROM(!PIN_THERM_ACTIVE_STATE);
     client.publish("espaltherma/STATE", "OFF", true);
     mqttSerial.println("Turned OFF");
+    displayLog("Heat pump turned OFF");
   }
   else if (payload[1] == 'N')
   { //turn on
@@ -172,6 +175,7 @@ void callbackTherm(byte *payload, unsigned int length)
     saveEEPROM(PIN_THERM_ACTIVE_STATE);
     client.publish("espaltherma/STATE", "ON", true);
     mqttSerial.println("Turned ON");
+    displayLog("Heat pump turned ON");
   }
   else if (payload[0] == 'R')//R(eset/eboot)
   {

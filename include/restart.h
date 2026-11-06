@@ -29,7 +29,7 @@ const char *resetReasonName()
     case ESP_RST_TASK_WDT: return "task watchdog";
     case ESP_RST_WDT: return "other watchdog";
     case ESP_RST_DEEPSLEEP: return "wake from deep sleep";
-    case ESP_RST_BROWNOUT: return "brownout (supply voltage dropped)";
+    case ESP_RST_BROWNOUT: return "brownout (supply dip)";
     case ESP_RST_SDIO: return "SDIO";
     default: return "unknown";
   }
