@@ -461,10 +461,11 @@ void loop()
     unsigned char receivedRegistryID = PROTOCOL == 'S' ? buff[0] : buff[1];
     registriesQueried++;
     displayRegisterRead(registryIDs[i], replied && registryIDs[i] == receivedRegistryID);
-    if (registryIDs[i] == receivedRegistryID) //if replied registerID is coherent with the command
+    //Decode only a complete reply with a good CRC whose registerID matches the command. A failed
+    //reply can still carry the right ID by chance (noise, a corrupted byte) and its values are garbage.
+    if (replied && registryIDs[i] == receivedRegistryID)
     {
-      if (replied)
-        registriesRead++;
+      registriesRead++;
       noteActivity(ACT_DECODE, registryIDs[i]);
       converter.readRegistryValues(buff, PROTOCOL); //process all values from the register
       updateValues(registryIDs[i]);       //send them in mqtt

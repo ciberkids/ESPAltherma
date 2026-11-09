@@ -575,7 +575,16 @@ private:
                            "UseStrdThrm(ht)2",
                            "UseStrdThrm(ht)3",
                            "UseStrdThrm(ht)4"};
-        sprintf(ret, r217[(int)data[0]]);
+        // ret is a 30-byte LabelDef::asString: an out-of-range byte (eg. a corrupted reply) used to
+        // read past the table and overflow it into the next label, crashing the board.
+        if (data[0] < sizeof(r217) / sizeof(r217[0]))
+        {
+            strlcpy(ret, r217[data[0]], 30);
+        }
+        else
+        {
+            snprintf(ret, 30, "Unknown (%d)", data[0]);
+        }
     }
 
     unsigned short getUnsignedValue(unsigned char *data, int dataSize, int cnvflg)

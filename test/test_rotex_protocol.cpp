@@ -82,11 +82,32 @@ void test_rotex_converter_54(void)
     // std::cout << decode_data(buff4) << std::endl;
 }
 
+// Operation mode table (conv 217): an out-of-range byte must not read past the table or overflow
+// the 30-byte asString into the next label (it used to crash the board on a noisy serial line).
+void test_converter_217_out_of_range(void)
+{
+    Converter converter;
+    LabelDef defs[2] = {LabelDef(0x10, 0, 217, 1, -1, "Operation Mode"), LabelDef(0x10, 1, 304, 1, -1, "Defrost Operation")};
+    unsigned char data[1];
+    const unsigned char values[] = {1, 18, 19, 255};
+    const char *expected[] = {"Heating", "UseStrdThrm(ht)4", "Unknown (19)", "Unknown (255)"};
+    for (int i = 0; i < 4; i++)
+    {
+        data[0] = values[i];
+        converter.convert(&defs[0], data);
+        TEST_ASSERT_EQUAL_STRING(expected[i], defs[0].asString);
+        TEST_ASSERT_EQUAL_INT(304, defs[1].convid);
+        TEST_ASSERT_EQUAL_INT(1, defs[1].offset);
+        TEST_ASSERT_EQUAL_INT(0x10, defs[1].registryID);
+    }
+}
+
 int main(int argc, char **argv)
 {
     UNITY_BEGIN();
     RUN_TEST(test_rotex_converter_53);
     RUN_TEST(test_rotex_converter_54);
+    RUN_TEST(test_converter_217_out_of_range);
     UNITY_END();
 
     return 0;
