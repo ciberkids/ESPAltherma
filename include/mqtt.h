@@ -31,6 +31,28 @@ PubSubClient client(espClient);
  */
 void publishHomeAssistantDeviceDiscovery();
 
+#define MQTT_crash "espaltherma/crash"
+
+//If the last panic left a crash dump in flash, publishes its summary (retained, so it stays on
+//the broker as "the last crash") and then erases the dump, so each crash is reported once.
+//No dump: nothing is published and the previous report stays.
+void publishCrashReport()
+{
+  char json[640];
+  if (!describeLastCrash(json, sizeof(json)))
+  {
+    mqttSerial.println("No new crash dump");
+    return;
+  }
+  mqttSerial.printf("Crash dump found: %s\n", json);
+  if (client.publish(MQTT_crash, json, true))
+  {
+#if !defined(ARDUINO_ARCH_ESP8266)
+    esp_core_dump_image_erase();
+#endif
+  }
+}
+
 void sendValues()
 {
   mqttSerial.printf("Sending values in MQTT.\n");
@@ -58,6 +80,7 @@ void sendValues()
   unsigned long uptime = (unsigned long)(esp_timer_get_time() / 1000000ULL);//64-bit timer: no 49-day wrap like millis()
 #endif
   snprintf(jsonbuff + strlen(jsonbuff),MAX_MSG_SIZE - strlen(jsonbuff) , "\"%s\":\"%lu\",", "Uptime", uptime);//seconds since boot
+  snprintf(jsonbuff + strlen(jsonbuff),MAX_MSG_SIZE - strlen(jsonbuff) , "\"%s\":\"%s\",", "LastReset", describeLastReset());
   jsonbuff[strlen(jsonbuff) - 1] = '}';
 #ifdef JSONTABLE
   strcat(jsonbuff,"]");
@@ -100,6 +123,7 @@ void reconnectMqtt()
   int i = 0;
   while (!client.connected())
   {
+    noteActivity(ACT_MQTT);
     if (WiFi.status() != WL_CONNECTED)
     { // No point retrying MQTT without WiFi; recover it first
       checkWifi();

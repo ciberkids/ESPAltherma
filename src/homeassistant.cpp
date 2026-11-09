@@ -11,11 +11,20 @@ const char *discovery_json_end = "},\"stat_t\":\"espaltherma/ATTR\",\"qos\": 2}"
 #define ESP_SENSOR_WIFI_RSSI 998
 #define ESP_SENSOR_FREE_MEM 997
 #define ESP_SENSOR_UPTIME 996
+#define ESP_SENSOR_LAST_RESET 995
 
 const LabelDef battery_voltage = {-1, -1, -1, -1, ESP_SENSOR_M5BATV, "M5BatV"};
 const LabelDef wifi_rssi = {-1, -1, -1, -1, ESP_SENSOR_WIFI_RSSI, "WifiRSSI"};
 const LabelDef free_mem = {-1, -1, -1, -1, ESP_SENSOR_FREE_MEM, "FreeMem"};
 const LabelDef uptime = {-1, -1, -1, -1, ESP_SENSOR_UPTIME, "Uptime"};
+const LabelDef last_reset = {-1, -1, -1, -1, ESP_SENSOR_LAST_RESET, "LastReset"};
+
+// LastCrash reads its own retained topic, which the board writes only when it finds a new crash
+// dump at boot; the report's other fields (backtrace, firmware fingerprints) become attributes.
+const char *last_crash_json = ",\"lastcrash\":{\"p\":\"sensor\",\"ic\":\"mdi:bug-outline\","
+                              "\"stat_t\":\"espaltherma/crash\",\"val_tpl\":\"{{value_json['summary']}}\","
+                              "\"json_attr_t\":\"espaltherma/crash\",\"uniq_id\":\"espaltherma_lastcrash\","
+                              "\"def_ent_id\":\"sensor.espaltherma_lastcrash\",\"name\":\"LastCrash\",\"ent_cat\":\"diagnostic\"}";
 
 static bool isMeasurementSensor(const std::string &sensorProperties)
 {
@@ -47,6 +56,9 @@ size_t streamDeviceDiscoveryPayload(const LabelDef *labels, size_t count, Discov
     emit(s.data(), s.size());
     s = "," + makeSensorJson(uptime, true);
     emit(s.data(), s.size());
+    s = "," + makeSensorJson(last_reset, true);
+    emit(s.data(), s.size());
+    emit(last_crash_json, strlen(last_crash_json));
 
     // Sensors from the active definition file. Each component is streamed on its own so the
     // payload is never held in memory all at once.
@@ -135,6 +147,9 @@ std::string getSensorDeviceAndUnit(const LabelDef &label)
         // "Uptime" (duration in s, since boot: drops to 0 on every reboot)
         case ESP_SENSOR_UPTIME:
             return "\"p\":\"sensor\",\"dev_cla\":\"duration\",\"unit_of_meas\":\"s\",";
+        // "LastReset" (why the board last rebooted and what it was doing): plain text
+        case ESP_SENSOR_LAST_RESET:
+            return "\"p\":\"sensor\",\"ic\":\"mdi:restart-alert\",";
 
         /// Built-in ones:
         // TODO: move magic numbers to consts

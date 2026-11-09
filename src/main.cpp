@@ -168,6 +168,7 @@ void checkWifi()
 {
   if (WiFi.status() == WL_CONNECTED)
     return;
+  noteActivity(ACT_WIFI);
 
   unsigned long lostTime = millis();
   unsigned long lastAttempt = millis();
@@ -229,6 +230,7 @@ void checkWifiRoaming()
   if (currentRSSI >= ROAM_RSSI_THRESHOLD)
     return;
 
+  noteActivity(ACT_WIFI_SCAN);
   int16_t n = WiFi.scanNetworks(false, true);
   int16_t bestIndex = -1;
   int32_t bestRSSI = currentRSSI + ROAM_MIN_IMPROVEMENT;
@@ -248,6 +250,7 @@ void checkWifiRoaming()
     int32_t channel = WiFi.channel(bestIndex);
     mqttSerial.printf("WiFi weak (%ddBm), roaming to stronger AP (%ddBm, ch%d)\n", currentRSSI, bestRSSI, channel);
     WiFi.scanDelete();
+    noteActivity(ACT_WIFI_ROAM);
     WiFi.disconnect();
     WiFi.begin(WIFI_SSID, WIFI_PWD, channel, bssid, true);
     checkWifi();
@@ -341,6 +344,8 @@ void initRegistries(){
 
 void setup()
 {
+  describeLastReset();//read what the previous run was doing before it gets overwritten
+  noteActivity(ACT_BOOT);
   Serial.begin(115200);
   displayBegin();
   MySerial.begin(9600, SERIAL_CONFIG, RX_PIN, TX_PIN);
@@ -371,6 +376,7 @@ void setup()
   setup_wifi();
   ArduinoOTA.setHostname("ESPAltherma");
   ArduinoOTA.onStart([]() {
+    noteActivity(ACT_OTA);
     displayOtaStart();
     busy = true;
   });
@@ -412,7 +418,8 @@ void setup()
   displayLog("MQTT: connecting to %s", MQTT_SERVER);
   reconnectMqtt();
   mqttSerial.println("OK!");
-  mqttSerial.printf("Last reset reason: %s\n", resetReasonName());
+  mqttSerial.printf("Last reset reason: %s\n", describeLastReset());
+  publishCrashReport();
 
   initRegistries();
   mqttSerial.print("ESPAltherma started!");
@@ -445,6 +452,7 @@ void loop()
     unsigned char buff[MAX_REPLY_LEN] = {0};
     int tries = 0;
     bool replied;
+    noteActivity(ACT_QUERY, registryIDs[i]);
     while (!(replied = queryRegistry(registryIDs[i], buff, PROTOCOL)) && tries++ < 3)
     {
       mqttSerial.println("Retrying...");
@@ -457,13 +465,16 @@ void loop()
     {
       if (replied)
         registriesRead++;
+      noteActivity(ACT_DECODE, registryIDs[i]);
       converter.readRegistryValues(buff, PROTOCOL); //process all values from the register
       updateValues(registryIDs[i]);       //send them in mqtt
       //waitLoop(500);//wait .5sec between registries
     }
   }
+  noteActivity(ACT_PUBLISH);
   displayCycleDone(registriesRead, registriesQueried);
   sendValues();//Send the full json message
   mqttSerial.printf("Done. Waiting %ld ms...", FREQUENCY - millis() + start);
+  noteActivity(ACT_WAIT);
   waitLoop(FREQUENCY - millis() + start);
 }
